@@ -1,0 +1,98 @@
+---
+title: "AURN Air Quality Dashboard"
+author: "Anthony Walker"
+resource_files:
+- AURN_daily.csv
+output:
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    social: menu
+    source_code: embed
+runtime: shiny
+---
+
+```{r global, include=FALSE}
+# load data in 'global' chunk so it can be shared by all users of the dashboard
+library(ggplot2)
+library(shiny)
+library(dplyr)
+library(plotly)
+library(openair)
+
+year <- 2019
+
+AURNMeta <- importMeta()
+AURNMeta.UrbanTraffic <- AURNMeta %>% filter(site.type == "Urban Traffic")
+AURNSites.UrbanTraffic <- AURNMeta.UrbanTraffic$code
+## import all AURN data into individual dfs
+for(i in AURNSites.UrbanTraffic) {
+  assign(paste(i),importAURN(site = i, year = 2019))
+}
+remove(AURNMeta)
+remove(AURNMeta.UrbanTraffic)
+
+dfs = sapply(.GlobalEnv, is.data.frame) 
+
+AURN_data_bound <- do.call(bind_rows, mget(names(dfs)[dfs]))
+AURN_data_bound
+
+AURN_data <- timeAverage(AURN_data_bound, avg.time = "day", type = "code")
+```
+
+Inputs {.sidebar}
+-----------------------------------------------------------------------
+
+```{r}
+ selectInput("code", label = h3("AURN Site"), 
+    choices = AURN_data$code, 
+    selected = 1)
+
+ selectInput("pollutant", label = h3("Pollutant"), 
+    choices = colnames(AURN_data)[3:16], 
+    selected = 1)
+```
+
+AURN Air Quality Data extracted using OpenAir package. 
+
+
+Row
+-----------------------------------------------------------------------
+
+### TimeSeries
+    
+```{r}
+
+datasetInput <- reactive({
+      AURN_data %>% filter(code == input$code)
+})
+
+pollutant <- reactive({
+  input$pollutant
+})
+
+renderPlotly({
+    dataset <- datasetInput()
+    pollutant <- pollutant()
+    dataset %>%
+    plot_ly(x = ~date) %>% 
+    add_trace(y = ~get(pollutant), type = "scatter", mode = "lines") %>% 
+    layout(
+      title = paste("Site Code: ",dataset$code[1], "Pollutant: ",input$pollutant),
+      xaxis = list(title = "Date"),
+      yaxis = list(title = "NO2 [µg/m3]")
+    )
+})
+```
+
+
+Row 
+-----------------------------------------------------------------------
+
+### Data for Selected Cluster
+
+```{r}
+# only display table for values in cluster 4
+renderTable(
+  AURN_data[AURN_data$code == input$code,]
+)
+```
